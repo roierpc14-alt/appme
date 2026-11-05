@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Visor IA Fricción Cero</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body, html { width: 100%; height: 100%; background-color: #000; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+    
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    /* Visor de Cámara */
+    .viewport {
+      flex: 1;
+      position: relative;
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    video, canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Botón de Engranaje (Configuración) */
+    .settings-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      backdrop-filter: blur(8px);
+      cursor: pointer;
+    }
+
+    /* Barra de Zoom estilo Nativo */
+    .zoom-bar {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 20px;
+      padding: 4px;
+      gap: 6px;
+      backdrop-filter: blur(8px);
+      z-index: 5;
+    }
+
+    .zoom-btn {
+      background: transparent;
+      border: none;
+      color: #fff;
+      padding: 6px 14px;
+      font-size: 14px;
+      font-weight: bold;
+      border-radius: 16px;
+      cursor: pointer;
+    }
+
+    .zoom-btn.active {
+      background: #fff;
+      color: #000;
+    }
+
+    /* Barra Inferior de Disparo / Controles */
+    .controls-bar {
+      height: 120px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding-bottom: 10px;
+      z-index: 5;
+    }
+
+    .shutter-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 4px solid #fff;
+      background: transparent;
+      padding: 3px;
+      cursor: pointer;
+    }
+
+    .shutter-inner {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      border-radius: 50%;
+    }
+
+    /* Panel Modal de Configuración */
+    .modal {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
+      z-index: 20;
+      padding: 24px;
+      color: #fff;
+      backdrop-filter: blur(10px);
+    }
+
+    .modal.open { display: flex; flex-direction: column; justify-content: center; }
+    .modal h2 { margin-bottom: 20px; font-size: 20px; }
+    .modal label { font-size: 14px; color: #ccc; margin-top: 14px; display: block; }
+    .modal input, .modal select {
+      width: 100%;
+      padding: 12px;
+      margin-top: 6px;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #222;
+      color: #fff;
+      font-size: 16px;
+    }
+    .modal-buttons { margin-top: 24px; display: flex; gap: 12px; }
+    .modal-btn {
+      flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;
+    }
+    .save-btn { background: #3b82f6; color: #fff; }
+    .close-btn { background: #333; color: #fff; }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <!-- Botón Engranaje -->
+  <button class="settings-btn" id="openSettings">⚙️</button>
+
+  <!-- Visor -->
+  <div class="viewport" id="viewport">
+    <video id="webcam" autoplay playsinline muted></video>
+    
+    <!-- Selector Zoom -->
+    <div class="zoom-bar">
+      <button class="zoom-btn" data-zoom="0.5">.5x</button>
+      <button class="zoom-btn active" data-zoom="1">1x</button>
+      <button class="zoom-btn" data-zoom="2">2x</button>
+    </div>
+  </div>
+
+  <!-- Controles Inferiores -->
+  <div class="controls-bar">
+    <button class="shutter-btn" id="captureBtn">
+      <div class="shutter-inner"></div>
+    </button>
+  </div>
+</div>
+
+<!-- Modal Configuración -->
+<div class="modal" id="settingsModal">
+  <h2>Configuración de IA</h2>
+  
+  <label for="apiKeyInput">Gemini API Key:</label>
+  <input type="password" id="apiKeyInput" placeholder="Pega tu API Key aquí">
+
+  <label for="thinkingBudgetSelect">Nivel de Pensamiento (Thinking Budget):</label>
+  <select id="thinkingBudgetSelect">
+    <option value="0">Bajo (Instantáneo / 0 tokens)</option>
+    <option value="1024" selected>Medio (Equilibrado / 1024 tokens)</option>
+    <option value="8192">Alto (Minucioso / 8192 tokens)</option>
+  </select>
+
+  <div class="modal-buttons">
+    <button class="modal-btn close-btn" id="closeSettings">Cancelar</button>
+    <button class="modal-btn save-btn" id="saveSettings">Guardar</button>
+  </div>
+</div>
+
+<script>
+  const video = document.getElementById('webcam');
+  const captureBtn = document.getElementById('captureBtn');
+  const openSettings = document.getElementById('openSettings');
+  const closeSettings = document.getElementById('closeSettings');
+  const saveSettings = document.getElementById('saveSettings');
+  const settingsModal = document.getElementById('settingsModal');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const thinkingBudgetSelect = document.getElementById('thinkingBudgetSelect');
+
+  let currentStream = null;
+
+  // Cargar configuración guardada
+  apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
+  thinkingBudgetSelect.value = localStorage.getItem('gemini_thinking_budget') || '1024';
+
+  // Iniciar cámara con permisos persistentes
+  async function initCamera() {
+    try {
+      const constraints = {
+        video: { facingMode: { exact: "environment" } },
+        audio: false
+      };
+      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = currentStream;
+    } catch (e) {
+      // Si la cámara trasera exacta falla, probar cualquier cámara trasera/estándar
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        video.srcObject = currentStream;
+      } catch (err) {
+        alert("Asegúrate de acceder mediante HTTPS o localhost para activar la cámara.");
+      }
+    }
+  }
+
+  // Eventos Modal
+  openSettings.addEventListener('click', () => settingsModal.classList.add('open'));
+  closeSettings.addEventListener('click', () => settingsModal.classList.remove('open'));
+  saveSettings.addEventListener('click', () => {
+    localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
+    localStorage.setItem('gemini_thinking_budget', thinkingBudgetSelect.value);
+    settingsModal.classList.remove('open');
+  });
+
+  // Zooms
+  document.querySelectorAll('.zoom-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.zoom-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      // Aplicar transform de escala visual si la API nativa de zoom no apoya directamente
+      const zoomVal = e.target.getAttribute('data-zoom');
+      video.style.transform = `scale(${zoomVal})`;
+    });
+  });
+
+  window.addEventListener('DOMContentLoaded', initCamera);
+</script>
+</body>
+</html>
